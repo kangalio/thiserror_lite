@@ -1,17 +1,8 @@
 #![allow(unused)]
 
-macro_rules! internal_2 {
-	($i:ident, $t:ty, $e:ident) => {};
-	(@ $from:tt $i:ident, $t:ty, $e:ident) => {
-		impl From<$t> for $e {
-			fn from(x: $t) -> $e {
-				todo!()
-			}
-		}
-	};
-}
-
-macro_rules! internal_1 {
+#[doc(hidden)]
+#[macro_export]
+macro_rules! _internal_1 {
 	// `Enum::Variant`: Empty variant
 	($self_:ident, $fmt:ident, $desc:literal, $variant_name:ident) => {
 		if let Self::$variant_name = $self_ {
@@ -20,44 +11,61 @@ macro_rules! internal_1 {
 	};
 
 	// `Enum::Variant()`: Empty tuple variant
-	($self_:ident, $fmt:ident, $desc:literal, $variant_name:ident, ()) => {
+	($self_:ident, $fmt:ident, $desc:literal, $variant_name:ident ()) => {
 		if let Self::$variant_name() = $self_ {
 			return write!($fmt, concat!($desc, ""));
 		}
 	};
 
 	// `Enum::Variant(i32)`: Tuple variant with one field
-	($self_:ident, $fmt:ident, $desc:literal, $variant_name:ident, ( $t1:ty $(,)? )) => {
+	($self_:ident, $fmt:ident, $desc:literal, $variant_name:ident ( $t1:ty )) => {
 		if let Self::$variant_name(a) = $self_ {
 			return write!($fmt, concat!($desc, "{0:.0}"), a);
 		}
 	};
 
 	// `Enum::Variant(i32, i32)`: Tuple variant with two fields
-	($self_:ident, $fmt:ident, $desc:literal, $variant_name:ident, ( $t1:ty, $t2:ty $(,)? )) => {
+	($self_:ident, $fmt:ident, $desc:literal, $variant_name:ident ( $t1:ty, $t2:ty )) => {
 		if let Self::$variant_name(a, b) = $self_ {
 			return write!($fmt, concat!($desc, "{0:.0}{1:.0}"), a, b);
 		}
 	};
 
 	// `Enum::Variant { f1: i32, f2: i32, ... }`: Struct variant with zero or more fields
-	($self_:ident, $fmt:ident, $desc:literal, $variant_name:ident, { $(
+	($self_:ident, $fmt:ident, $desc:literal, $variant_name:ident { $(
 		$i:ident: $t:ty
-	),* $(,)? }) => {
+	),* }) => {
 		if let Self::$variant_name { $($i),* } = $self_ {
 			return write!($fmt, concat!($desc, $("{", stringify!($i), ":.0}"),*), $($i = $i),*);
 		}
 	};
-}
 
-macro_rules! internal_2 {
-	// `Enum::Variant`, `Enum::Variant()`, or `Enum::Variant {}`
-	($e:ident, from, $variant_name:ident, $({})? $(())?) => {
-		compile_error!("Can't generate a From impl for variant with no field");
+	($self_:ident, $fmt:ident, transparent, $variant_name:ident ( $t:ty )) => {
+		if let Self::$variant_name(a) = $self_ {
+			return write!($fmt, "{}", a); // is this correct?
+		}
 	};
 
-	// `Enum::Variant(i32)`: Tuple variant with one field
-	($e:ident, from, $variant_name:ident, ( $t:ty $(,)? )) => {
+	($self_:ident, $fmt:ident, transparent, $variant_name:ident { $f:ident: $t:ty }) => {
+		if let Self::$variant_name { $f } = $self_ {
+			return write!($fmt, "{}", $f); // is this correct?
+		}
+	};
+
+	($self_:ident, $fmt:ident, transparent, $variant_name:ident
+		$(())?
+		$({})?
+		$(($tt1:ty, $(tt2:ty),+))?
+		$(($sf1:ident: $st1:ty, $($sf2:ident: $st2:ty),+))?
+	) => {
+		compile_error!("Exactly one field must be present in order to use #[error(transparent)]");
+	}
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! _internal_2 {
+	($e:ident, $variant_name:ident (#[from] $t:ty)) => {
 		impl From<$t> for $e {
 			fn from(x: $t) -> $e {
 				$e::$variant_name(x)
@@ -65,82 +73,99 @@ macro_rules! internal_2 {
 		}
 	};
 
-	// `Enum::Variant(i32, i32, ...)`: Tuple variant with two or more fields
-	($e:ident, from, $variant_name:ident, ( $t1:ty, $($t2:ty)+ $(,)? )) => {
-		compile_error!("Can't generate a From impl for variant with multiple fields")
-	};
-
-	// `Enum::Variant { f1: i32 }`: Struct variant with one field
-	($e:ident, from, $variant_name:ident, { $i:ident: $t:ty $(,)? }) => {
-		impl From<$t> for $e {
-			fn from(x: $t) -> $e {
-				$e::$variant_name { $i: x }
+	($e:ident, $variant_name:ident { #[from] $field:ident: $type_:ty}) => {
+		impl From<$type_> for $e {
+			fn from(x: $type_) -> $e {
+				$e::$variant_name { $field: x }
 			}
 		}
 	};
 
-	// `Enum::Variant { f1: i32, f2: i32, ... }`: Struct variant with two or more fields
-	($e:ident, from, $variant_name:ident, { $i1:ident: $t1:ty, $($i2:ident: $t2:ty),+ $(,)? }) => {
-		compile_error!("Can't generate a From impl for variant with multiple fields")
+	($e:ident, $variant_name:ident $(($($tt:ty),*))? $({$($sf:ident: $st:ty),*})?) => {
+		// This is just a regular unit, tuple, or struct variant without any #[from] fields
 	};
 
-	($e:ident, /* gap */ $variant_name:ident, $($rest:tt)?) => {
-		// There is no from attribute in here, so we don't generate any From impl
-	};
-
-	($e:ident, $smth_else:ident, $variant_name:ident, $($rest:tt)?) => {
-		compile_error!(concat!("Unknown attribute #[", stringify!($smth_else), "]"));
+	// This matches any unit, tuple, or struct variant with or without an arbitrary amount of
+	// #[from] fields. However, any valid usages of #[from] will have been cought by the above macro
+	// rules, so this rule only kicks in if usage was invalid
+	($e:ident, $variant_name:ident $(($($(#[from])? $tt:ty),*))? $({$($(#[from])? $sf:ident: $st:ty),*})?) => {
+		compile_error!("Can't use #[from] in variants with multiple fields");
 	};
 }
 
+#[macro_export]
 macro_rules! err_enum {
-	($(#[$error_attribute:meta])? $vis:vis enum $error_type_name:ident { $(
-		#[error($desc:literal)] $(#[$from:ident])? $variant_name:ident $(: $variant_spec:tt)?
+    // remember that $vis matches even nothing. No need to enclose in $()? or anything like that
+	($(#[$error_attribute:meta])* $vis:vis enum $error_type_name:ident { $(
+		#[error($desc:tt)]
+		$variant_name:ident
+		$({$(
+			$(#[$sfrom:ident])? $sf:ident: $st:ty
+		),* $(,)?})?
+		$(($(
+			$(#[$tfrom:ident])? $tt:ty
+		),* $(,)?))?
 	),* $(,)? }) => {
-		$(#[$error_attribute])?
-		pub enum $error_type_name {
-			$(
-				$variant_name $($variant_spec)?
-			),*
-		}
+		$(#[$error_attribute])*
+        $vis enum $error_type_name {
+            $(
+                $variant_name $({$($sf: $st),*})? $(($($tt),*))?
+            ),*
+        }
 
 		impl std::fmt::Display for $error_type_name {
 			fn fmt(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-				use std::io::Write as _;
-
 				$(
-					internal_1!(self, formatter, $desc, $variant_name $(, $variant_spec)?);
+					$crate::_internal_1!(self, formatter, $desc, $variant_name $({$($sf: $st),*})? $(($($tt),*))?);
 				)*
 
-				// Each enum variants should have been covered by an if-let-return
+				// Each enum variant is covered by an if-let-return
 				unreachable!()
 			}
 		}
 
 		$(
-			internal_2!($error_type_name, $($from,)? $variant_name, $($variant_spec)?);
+			$crate::_internal_2!(
+				$error_type_name,
+				$variant_name
+				$({$(
+					$(#[$sfrom])? $sf: $st
+				),*})?
+				$(($(
+					$(#[$tfrom])? $tt
+				),*))?
+			);
 		)*
 
 		impl std::error::Error for $error_type_name {}
 	};
 }
 
-err_enum! {
-	#[derive(Debug, Clone)]
-	pub enum Error {
-		#[error("This is a simple error")]
-		SimpleErr,
-		#[error("Some other error {} {}")]
-		Tuple1ErrWhat: (i32, u32),
-		#[error("Some other error {hello} {world}")]
-		BraceThingy: {
-			hello: String,
-			world: String,
-		},
-		#[error("See: \"{inner}\"")]
-		#[from]
-		StringError: {
-			inner: String,
-		},
-	}
-}
+// err_enum! {
+// 	#[derive(Debug, Clone)]
+// 	pub enum Error {
+// 		#[error("This is a simple error")]
+// 		SimpleErr,
+// 		#[error("This is a simple tuple error")]
+// 		SimpleErr2(),
+// 		#[error("This is a simple struct error")]
+// 		SimpleErr3 {},
+// 		#[error("Some other error {} {}")]
+// 		Tuple1ErrWhat(i32, u32),
+// 		#[error("Some other error {hello}. We're not printing world here >:)")]
+// 		BraceThingy {
+// 			hello: String,
+// 			world: String,
+// 		},
+// 		#[error("See: \"{inner}\"")]
+// 		StringError {
+//             #[from] inner: String,
+// 		},
+// 		#[error("yeah. gotta use ehhhh, u32 cuz String is already taken")]
+// 		StringErrorTuple(#[from] u32),
+// 		#[error(transparent)]
+// 		ForwardError(#[from] std::num::ParseIntError),
+// 		#[error(transparent)]
+// 		ForwardError2 { inner: std::num::ParseIntError },
+// 	}
+// }
