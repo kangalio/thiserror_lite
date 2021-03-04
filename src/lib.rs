@@ -106,7 +106,7 @@ macro_rules! _internal_2 {
 	($e:ident, $variant_name:ident ( $( $(#[from])? $tt:ty ),* ) ) => {
 		compile_error!("Can't use #[from] in variants with multiple fields");
 	};
-	
+
 	// Like above, but for struct variants instead of tuple variants
 	($e:ident, $variant_name:ident { $( $(#[from])? $sf:ident: $st:ty ),* } ) => {
 		compile_error!("Can't use #[from] in variants with multiple fields");
@@ -192,8 +192,12 @@ macro_rules! check_that_its_from_or_source {
 	(from) => {};
 	(source) => {};
 	($smth_else:meta) => {
-		compile_error!(concat!("Unknown attribute \"", stringify!($smth_else), "\""));
-	}
+		compile_error!(concat!(
+			"Unknown attribute \"",
+			stringify!($smth_else),
+			"\""
+		));
+	};
 }
 
 #[macro_export]
@@ -215,7 +219,7 @@ macro_rules! err_enum {
                 $variant_name $({$($sf: $st),*})? $(($($tt),*))?
             ),*
 		}
-		
+
 		// check that all the attributes are either #[from] or #[source]. This assumption later
 		// allows the internal macros to skip handling the unknown attribute error case
 		$( // for each variant
@@ -231,7 +235,7 @@ macro_rules! err_enum {
 		impl core::fmt::Display for $error_type_name {
 			fn fmt(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
 				#![allow(irrefutable_let_patterns)] // happens when there's just one variant
-				
+
 				$( // for each variant
 					$crate::_internal_1!(self, formatter, $desc, $variant_name $({$($sf: $st),*})? $(($($tt),*))?);
 				)*
@@ -296,35 +300,42 @@ macro_rules! dbg {
 	}
 }
 
-// err_enum! {
-// 	#[derive(Debug, Clone)]
-// 	pub enum Error {
-// 		#[error("This is a simple error")]
-// 		SimpleErr,
-// 		#[error("This is a simple tuple error")]
-// 		SimpleErr2(),
-// 		#[error("This is a simple struct error")]
-// 		SimpleErr3 {},
-// 		#[error("Some other error {} {}")]
-// 		Tuple1ErrWhat(i32, u32),
-// 		#[error("Some other error {hello}. We're not printing world here >:)")]
-// 		BraceThingy {
-// 			hello: String,
-// 			world: std::num::ParseIntError,
-// 		},
-// 		#[error("Some other error {0}. We're not printing world here >:)")]
-// 		BraceThingyTuple(String, #[source] std::num::ParseIntError),
-// 		#[error("See: \"{inner}\"")]
-// 		StringError {
-//             #[from] inner: std::num::ParseIntError,
-// 		},
-// 		#[error("yeah. gotta use ehhhh, u32 cuz String is already taken")]
-// 		StringErrorTuple(#[from] std::num::ParseFloatError ),
-// 		#[error(transparent)]
-// 		ForwardError(#[from] std::num::TryFromIntError ),
-// 		#[error(transparent)]
-// 		ForwardError2 { inner: std::num::ParseIntError },
-// 	}
-// }
+#[cfg(test)]
+#[test]
+fn test_main() {
+	err_enum! {
+		#[derive(Debug, Clone)]
+		pub enum Error {
+			#[error("This is a simple error")]
+			SimpleErr,
+			#[error("This is a simple tuple error")]
+			SimpleErr2(),
+			#[error("This is a simple struct error")]
+			SimpleErr3 {},
+			#[error("Some other error {} {}")]
+			Tuple1ErrWhat(i32, u32),
+			#[error("Some other error {hello}. We're not printing world here >:)")]
+			BraceThingy {
+				hello: String,
+				world: std::num::ParseIntError,
+			},
+			#[error("Some other error {0}. We're not printing world here >:)")]
+			BraceThingyTuple(String, #[source] std::num::ParseIntError),
+			#[error("See: \"{inner}\"")]
+			StringError {
+				#[from] inner: std::num::ParseIntError,
+			},
+			#[error("yeah. gotta use ehhhh, u32 cuz String is already taken")]
+			StringErrorTuple(#[from] std::num::ParseFloatError ),
+			#[error(transparent)]
+			ForwardError(#[from] std::num::TryFromIntError ),
+			#[error(transparent)]
+			ForwardError2 { inner: std::num::ParseIntError },
+		}
+	}
+}
 
 // TODO: rename "sf" -> "struct field"; "tt" -> "tuple type"; etc.
+// TODO: #[error(transparent)] for #[source]
+// TODO: support error structs
+// TODO: add custom expressions behind error format string
